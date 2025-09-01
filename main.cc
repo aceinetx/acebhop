@@ -10,6 +10,7 @@
 
 int *in_air = nullptr;
 int *jumping = nullptr;
+bool active = false;
 
 wchar_t *GetWC(const char *c) {
   const size_t cSize = strlen(c) + 1;
@@ -72,7 +73,10 @@ uintptr_t GetModuleBaseAddress(DWORD procId, const char *modName) {
 
 DWORD WINAPI MainThread(LPVOID lpThreadParameter) {
   while (true) {
-    if (GetAsyncKeyState(VK_LMENU)) {
+    if (GetAsyncKeyState(VK_LMENU) & 0x1) {
+      active = !active;
+    }
+    if (GetAsyncKeyState(VK_SPACE) && active) {
       if (*in_air == 0) {
         *jumping = 5;
         Sleep(10);
