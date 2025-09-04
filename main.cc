@@ -6,23 +6,17 @@
 #include <string_view>
 #include <tchar.h>
 #include <vector>
+#include <type_traits>
 // clang-format on
+#ifndef _M_IX86
+#error "you shall build w/ x86 kit"
+#endif
 
 int *in_air = nullptr;
 int *jumping = nullptr;
 bool active = false;
 
-wchar_t *GetWC(const char *c) {
-  const size_t cSize = strlen(c) + 1;
-  wchar_t *wc = new wchar_t[cSize];
-  mbstowcs(wc, c, cSize);
-
-  return wc;
-}
-
-DWORD GetProcId(const char *processname) {
-  std::wstring processName;
-  processName.append(GetWC(processname));
+DWORD GetProcId(std::string processName) {
   PROCESSENTRY32 processInfo;
   processInfo.dwSize = sizeof(processInfo);
 
@@ -32,15 +26,13 @@ DWORD GetProcId(const char *processname) {
 
   Process32First(processesSnapshot, &processInfo);
 
-  // if (!processName.compare(processInfo.szExeFile))
-  if (!processName.compare(GetWC(processInfo.szExeFile))) {
+  if (!processName.compare(processInfo.szExeFile)) {
     CloseHandle(processesSnapshot);
     return processInfo.th32ProcessID;
   }
 
   while (Process32Next(processesSnapshot, &processInfo)) {
-    // if (!processName.compare(processInfo.szExeFile))
-    if (!processName.compare(GetWC(processInfo.szExeFile))) {
+    if (!processName.compare(processInfo.szExeFile)) {
       CloseHandle(processesSnapshot);
       return processInfo.th32ProcessID;
     }
@@ -50,7 +42,7 @@ DWORD GetProcId(const char *processname) {
   return 0;
 }
 
-uintptr_t GetModuleBaseAddress(DWORD procId, const char *modName) {
+uintptr_t GetModuleBaseAddress(DWORD procId, std::string modName) {
   uintptr_t modBaseAddr = 0;
   HANDLE hSnap =
       CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, procId);
@@ -59,8 +51,7 @@ uintptr_t GetModuleBaseAddress(DWORD procId, const char *modName) {
     modEntry.dwSize = sizeof(modEntry);
     if (Module32First(hSnap, &modEntry)) {
       do {
-        _bstr_t x(modEntry.szModule);
-        if (!_stricmp(x, modName)) {
+        if (!modName.compare(modEntry.szModule)) {
           modBaseAddr = (uintptr_t)modEntry.modBaseAddr;
           break;
         }
@@ -73,10 +64,10 @@ uintptr_t GetModuleBaseAddress(DWORD procId, const char *modName) {
 
 DWORD WINAPI MainThread(LPVOID lpThreadParameter) {
   while (true) {
-    if (GetAsyncKeyState(VK_LMENU) & 0x1) {
+    if (GetAsyncKeyState(VK_LMENU) & 0x1) { // toggle bhop
       active = !active;
     }
-    if (GetAsyncKeyState(VK_SPACE) && active) {
+    if (GetAsyncKeyState(VK_SPACE) && active) { // jump
       if (*in_air == 0) {
         *jumping = 5;
         Sleep(10);
@@ -88,13 +79,15 @@ DWORD WINAPI MainThread(LPVOID lpThreadParameter) {
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved) {
-  static_assert(sizeof(long) == 4, "you shall build w/ x86 kit");
   switch (dwReason) {
   case DLL_PROCESS_ATTACH: {
     DWORD pid = GetProcId("hl2.exe");
+    assert(pid != 0); // ensure process is found
     uintptr_t client = GetModuleBaseAddress(pid, "client.dll");
-    in_air = (int *)(client + 0x39D540);
-    jumping = (int *)(client + 0x3E71E4);
+    assert(client != (uintptr_t)0); // ensure client.dll is found
+    //DebugBreak();
+    in_air = reinterpret_cast<int*>(client + 0x39D540);
+    jumping = reinterpret_cast<int*>(client + 0x3E71E4);
 
     CreateThread(nullptr, 0, MainThread, hModule, 0, nullptr);
   } break;
